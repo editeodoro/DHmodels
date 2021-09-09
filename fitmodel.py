@@ -77,7 +77,7 @@ if __name__ == '__main__':
     labels = ["vflat", "lag","vz", "h0"]    # Names of parameters to fit
     
     # GaussianSandwich 
-    #p0 = [230, 15, -5., 1, 0.5]
+    #p0 = [230, 15, -5., 5., 0.5]
     #labels = ["vflat", "lag", "vz", "h0","sigma"]
     ###########################################################################
 
