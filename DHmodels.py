@@ -1,6 +1,5 @@
 import os
 import numpy as np
-from myutils import MWParticles
 from scipy.interpolate import interp1d
 import pandas as pd
 import astropy.units as u
