@@ -12,7 +12,7 @@ mpl.rc('xtick',direction='in',top=True,labelsize=lsize)
 mpl.rc('ytick',direction='in',right=True,labelsize=lsize) 
 mpl.rc('font',family='Times New Roman')
 params = {'text.usetex': False, 'mathtext.fontset': 'stix',\
-          'axes.labelsize': lsize, 'legend.fontsize': lsize, 'axes.grid' : True}
+          'axes.labelsize': lsize, 'legend.fontsize': lsize, 'axes.grid' : False}
 plt.rcParams.update(params)
 
 # Loading functions in C++ library
@@ -97,7 +97,7 @@ def rotationModel(R,z,pars):
 ##########################################################################
 def Constant_Density(R, z, pars):
     # Density field is the same everywhere: dens(R,z) = const
-    return pars[0];
+    return np.full(shape=R.shape,fill_value=pars[0])
 
 def VerticalExponential_Density(R,z,pars):
     # Density is constant in R, but drops exponentially in z: 
@@ -233,6 +233,7 @@ def kinematic_model(lon,lat,velopars,densmodel,denspars,useC=True,nthreads=8,get
             rho = densmodel(R,z,pars=denspars)
             # Calculating column densities
             N[:len(rho)-1] = 0.5*(rho[:len(rho)-1]+rho[1:])*(deltaD*u.kpc).to('cm').value
+            N[-1] = N[-2]
             
             # Getting the rotation model
             vtheta = rotationModel(R,z,pars=rotmodpars)
@@ -244,15 +245,15 @@ def kinematic_model(lon,lat,velopars,densmodel,denspars,useC=True,nthreads=8,get
 
             vgsrs = vlsrs + VSun*np.sin(l)*np.cos(b) 
 
-            # Calculating N-weighted average velocities
             vlsr_av = vgsr_av = np.nan
             try:
+                # Calculating N-weighted average velocities
                 vlsr_av = np.average(vlsrs,weights=N)
                 vgsr_av = np.average(vgsrs,weights=N)
             except:
                 pass
             logN = np.log10(np.nansum(N))
-        
+                
             sightlines.add_sightlines(lon[i],lat[i],vlsr_av,vgsr_av,logN)
 
             # Calculating full spectrum if requested
@@ -263,6 +264,24 @@ def kinematic_model(lon,lat,velopars,densmodel,denspars,useC=True,nthreads=8,get
                 spectrum = np.nansum(gaussians,axis=1)
                 sightlines.spec.append(spectrum)
         
+            
+            if False:
+                aaa = np.nanmean(vlsrs)
+                print (aaa, vlsr_av)
+                fig, ax = plt.subplots(figsize=(8,6))
+                ax.plot(Ds,N/1E15,color='teal')
+                ax2 = ax.twinx()
+                ax2.plot(Ds,vlsrs,c='orange',label='VLSR')
+                #ax2.axhline(aaa,c='red')
+                ax2.axhline(vlsr_av,c='forestgreen',label='Average VLSR')
+                ax.set_xlabel("Distance (kpc)")
+                ax.set_ylabel("Column (arbitrary units)",color='teal')
+                ax2.set_ylabel("VLSR (km/s)",color='orange')
+                ax2.text(Ds[-3],vlsr_av+4,"Average VLSR",color='forestgreen',ha='right')
+                ax.set_title(f"l={lon[i]:.0f} deg, b={lat[i]:.0f} deg")
+                plt.show()
+                exit()
+        
     return sightlines
     
 
@@ -270,9 +289,9 @@ def kinematic_model(lon,lat,velopars,densmodel,denspars,useC=True,nthreads=8,get
 ##########################################################################
 # PLOTTING FUNCTIONS
 ##########################################################################
-def plot_model(slines):
+def plot_model(slines,vrange=None):
     
-    fig, ax = plt.subplots(figsize=(20,20),nrows=1, ncols=2, subplot_kw= {'projection' : 'aitoff'})
+    fig, ax = plt.subplots(figsize=(20,20),nrows=1, ncols=2, subplot_kw= {'projection' : 'mollweide'})
     fig.subplots_adjust(hspace=0.15, wspace=0.08)
     ax = np.ravel(ax)
 
@@ -282,8 +301,10 @@ def plot_model(slines):
 
     for i in range(len(ax)):
         a = ax[i]
-        vmax = np.nanmax(np.abs(vels[i]))
-        norm = mpl.colors.Normalize(vmin=-vmax,vmax=vmax)
+        if vrange: norm = mpl.colors.Normalize(vmin=vrange[0],vmax=vrange[1])
+        else:
+            vmax = np.nanmax(np.abs(vels[i]))
+            norm = mpl.colors.Normalize(vmin=-vmax,vmax=vmax)
 
         a.grid(True)
         a.axhline(0,c='k')
@@ -296,29 +317,91 @@ def plot_model(slines):
     return (fig, ax)
 
 
-def plot_datavsmodel(data,model):
+def plot_datavsmodel(data,model,vrange=None,label=None):
     
-    fig, ax = plt.subplots(figsize=(20,20),nrows=1, ncols=2, subplot_kw= {'projection' : 'aitoff'})
+    fig, ax = plt.subplots(figsize=(30,30),nrows=1, ncols=3, subplot_kw= {'projection' : 'mollweide'})
     fig.subplots_adjust(hspace=0.15, wspace=0.05)
     ax = np.ravel(ax)
     cmap = plt.get_cmap('coolwarm')
-    vmax = np.nanmax(np.concatenate([data.vlsr,model.vlsr]))
-    norm = mpl.colors.Normalize(vmin=-vmax,vmax=vmax)
+    if vrange: norm = mpl.colors.Normalize(vmin=vrange[0],vmax=vrange[1])
+    else:
+        vmax = np.nanmax(np.concatenate([data.vlsr,model.vlsr]))
+        norm = mpl.colors.Normalize(vmin=-vmax,vmax=vmax)
 
     for i in range (len(ax)):
         a = ax[i]
         a.grid(True)
         a.axhline(0,c='k')
     
-    ax[0].scatter(np.radians(data.lon),np.radians(data.lat),c=data.vlsr,cmap=cmap,norm=norm,edgecolors='gray',s=70)
+    im1 = ax[0].scatter(np.radians(data.lon),np.radians(data.lat),c=data.vlsr,cmap=cmap,norm=norm,edgecolors='gray',s=70)
     ax[0].text(0.5,-0.1,"DATA",transform=ax[0].transAxes,fontsize=lsize+2,ha='center')
 
     ax[1].scatter(np.radians(model.lon),np.radians(model.lat),c=model.vlsr,cmap=cmap,norm=norm,edgecolors='gray',s=70)
     ax[1].text(0.5,-0.1,"MODEL",transform=ax[1].transAxes,fontsize=lsize+2,ha='center')
 
+    resid = (data.vlsr-model.vlsr)
+    #vmax = np.nanmax(np.abs(resid))
+    im2 = ax[2].scatter(np.radians(model.lon),np.radians(model.lat),c=resid,\
+                        cmap=cmap,norm=norm,edgecolors='gray',s=70)
+    ax[2].text(0.5,-0.1,"RESIDUALS",transform=ax[2].transAxes,fontsize=lsize+2,ha='center')
 
-    cbax = fig.add_axes([ax[0].get_position().x0,ax[0].get_position().y1+0.03,\
-                         ax[1].get_position().x1-ax[0].get_position().x0,0.02]) 
-    cb = mpl.colorbar.ColorbarBase(ax=cbax,cmap=cmap,norm=norm,orientation='horizontal',ticklocation='top')
+    cbax = fig.add_axes([ax[0].get_position().x0,ax[0].get_position().y1+0.02,\
+                         ax[1].get_position().x1-ax[0].get_position().x0,0.015]) 
+    cb = plt.colorbar(im1,cax=cbax,orientation='horizontal',ticklocation='top')
     cb.set_label(r"$V_\mathrm{LSR}$ (km/s)",labelpad=10)
+    
+    cbax2 = fig.add_axes([ax[2].get_position().x0,ax[2].get_position().y1+0.02,\
+                          ax[2].get_position().x1-ax[2].get_position().x0,0.015]) 
+    cb = plt.colorbar(im2, cax=cbax2,orientation='horizontal',ticklocation='top')
+    cb.set_label(r"$\Delta V_\mathrm{LSR} = V_\mathrm{data}-V_\mathrm{mod}$ (km/s)",labelpad=10)
+    
+    
+    if label:
+        ax[1].text(0.5,-0.2,label,transform=ax[1].transAxes,fontsize=14,ha='center')
+    
     return (fig, ax)
+
+
+
+if __name__ == '__main__':
+    
+    # Simulating N sightlines 
+    size = 500
+    ls = [270]#np.random.uniform(-180,180,size=size)
+    bs = [25]#(2*np.random.randint(0,2,size=(size))-1)*np.random.uniform(15,80,size=size)     
+
+    velopars = (240,10,0,0)      # vflat,lag,vR,vz
+    
+    #densmodel  = Constant_Density
+    #denspars   = (1E-04,)       #rho
+
+    #densmodel = FlatSandwich_Density
+    #denspars  = (1E-04,2.)      # N0, h0
+
+    #densmodel = ThickSandwich_Density
+    #denspars  = (1E-04,3,4)  # rho0, hmin, hmax
+
+    #densmodel = GaussianSandwich_Density 
+    #denspars  = (1E-04,3,0.4)   # rho0, h0, sigma
+
+    densmodel = VerticalExponential_Density
+    denspars  = (1E-04, 4.5)    # rho0, z0 
+
+    #densmodel = RadialVerticalExponential_Density
+    #denspars  = (1E-04, 5., 1.)  # rho0, R0, z0
+
+    # Calculating the model (it returns a Sightlines() object
+    slines = kinematic_model(ls,bs,velopars=velopars,densmodel=densmodel,denspars=denspars,\
+                            getSpectra=True, useC=False)
+    
+    plt.figure(figsize=(10,8))
+    for i in range(slines.n):
+        plt.plot(slines.spec_grid,slines.spec[i],label='l=%.1f, b=%.1f'%(slines.lon[i],slines.lat[i]),c='k')
+        plt.axvline(slines.vlsr,c='green')
+    plt.xlabel("VLSR (km/s)")
+    plt.legend()
+    plt.show()
+    
+    print (slines.vlsr)
+    fig, ax = plot_model(slines)
+    fig.savefig("mymodel.pdf",bbox_inches='tight')
